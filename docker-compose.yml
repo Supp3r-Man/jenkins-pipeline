@@ -1,0 +1,14 @@
+# Local Jenkins for trying the pipeline. NOT for production: it runs as root and
+# mounts the host Docker socket so builds can run `docker` commands.
+services:
+  jenkins:
+    build: ./jenkins
+    user: root
+    ports:
+      - "8080:8080"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  jenkins_home:

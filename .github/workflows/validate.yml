@@ -1,0 +1,51 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: Lint, test & build app image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint and test (Dockerfile test stage)
+        run: docker build --target test .
+      - name: Build runtime image
+        run: docker build -t jenkins-pipeline-demo .
+
+  jenkinsfile:
+    name: Validate Jenkinsfile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Jenkins controller image
+        run: docker build -t jenkins-controller ./jenkins
+      - name: Start Jenkins
+        run: |
+          docker run -d --name jenkins -p 8080:8080 \
+            -e JAVA_OPTS=-Djenkins.install.runSetupWizard=false jenkins-controller
+          for i in $(seq 1 60); do
+            curl -fsS -o /dev/null http://localhost:8080/login && exit 0
+            sleep 2
+          done
+          docker logs jenkins
+          exit 1
+      - name: Lint Jenkinsfile with Jenkins' declarative validator
+        run: |
+          curl -fsS -c cookies.txt http://localhost:8080/crumbIssuer/api/json -o crumb.json
+          FIELD=$(jq -r .crumbRequestField crumb.json)
+          CRUMB=$(jq -r .crumb crumb.json)
+          RESULT=$(curl -fsS -b cookies.txt -H "$FIELD: $CRUMB" -X POST \
+            -F "jenkinsfile=<Jenkinsfile" \
+            http://localhost:8080/pipeline-model-converter/validate)
+          echo "$RESULT"
+          echo "$RESULT" | grep -q "successfully validated"
+      - name: Jenkins logs on failure
+        if: failure()
+        run: docker logs jenkins | tail -50
